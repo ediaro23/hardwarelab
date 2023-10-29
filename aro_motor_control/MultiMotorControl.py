@@ -8,12 +8,12 @@ import logging
 WRITEID = 0x140
 READID  = 0x240
 
-
+"""
+PCANBus class is a wrapper for the python-can library. It is used to send and receive messages from the CANbus.
+The class is initialized with the can0 channel and a baudrate of 1Mbit/s. The class also has a buffer which is used to store incoming messages.
+"""
 class PCANBus(object):
-
-
     def __init__(self):
-
         logging.info("Initializing CANbus")
 
         self.bus = can.Bus(channel="can0", bustype="socketcan", baudrate=1000000)
@@ -47,6 +47,10 @@ class PCANBus(object):
         return msg
     
 
+"""
+AROMotorControl class is used to control the motors.
+This class provides all the methods to implement a closed loop control of the motors.
+"""
 class AROMotorControl():
     
     def __init__(self):
@@ -56,41 +60,91 @@ class AROMotorControl():
         os.system("sudo ifconfig can0 txqueuelen 100000")
         os.system('sudo ifconfig can0 up')
         self.pcan = PCANBus()
+    
+    def _sendAndReceive(self, aribitration_id, data):
+        msg = can.Message(arbitration_id=aribitration_id, data=data, is_extended_id=False)
+        self.pcan.send_message(msg)
+        msg = self.pcan.read_input()
+        return msg
 
     
-    def bytestointeger(self, dataarray, range_ind=(6,8), signed=True, byterder="little"):
+    def _bytestointeger(self, msg, range_ind=(6,8), signed=True, byteorder="little"):
         return int.from_bytes(msg.data[range_ind[0]:range_ind[1]], byteorder=byteorder, signed=signed)
     
-    def readAngleMultiple(self, motorid=1,duration = 10):
+    def readAngle(self, motorid=1,duration=10, frequency=100):
         start = time.time()
         wid = WRITEID + motorid
-        rid = READID + motorid
         dataw=[0x92,0x00,0x00,0x00,0x00,0x00,0x00,0x00]
+
+        if duration == -1:
+            msg = self._sendAndReceive(wid, dataw)
+            value  = int.from_bytes(msg.data[4:8], byteorder='little', signed=True)
+
         while(time.time() - start < duration):
-                print("seding")
-                msg = can.Message(arbitration_id=wid, data=dataw, is_extended_id=False)
-                self.pcan.send_message(msg)
-                msg = self.pcan.read_input()
+                msg = self._sendAndReceive(wid, dataw)
                 value  = int.from_bytes(msg.data[4:8], byteorder='little', signed=True)
-                print("value", value * 0.01)
-                time.sleep(0.5)
-        return msg
+                time.sleep(1/frequency)
+        return value
     
     def readPID(self, motorid=1, duration=10):
-        start = time.time()
         wid = WRITEID + motorid
         rid = READID + motorid
         dataw=[0x30,0x00,0x00,0x00,0x00,0x00,0x00,0x00]
-        while (time.time() - start < duration):
-            msg = can.Message(arbitration_id=wid, data=dataw, is_extended_id=False)
-            pcan.send_message(msg)
-            msg = pcan.read_input()
-            print(f"obtained_msg: {msg}")
-            #kp = int.from_bytes(msg.data[2], byteorder="little", signed=True)
-            kp, ki = msg.data[2], msg.data[3]
-            print(f"current loop kp: {kp}, ki: {ki}")
-            time.sleep(0.1)
+        msg = self._sendAndReceive(wid, dataw)
+        kpCurrent, kiCurrent = msg.data[2], msg.data[3]
+        KpVel, KiVel = msg.data[4], msg.data[5]
+        KpPos, KiPos = msg.data[6], msg.data[7]
+        data = {
+            "current": (kpCurrent, kiCurrent),
+            "velocity": (KpVel, KiVel),
+            "position": (KpPos, KiPos)
+        }
+        return data
+
+    def setPIDInRAM(self, motorid=1, data={}):
+        wid = WRITEID + motorid
+        rid = READID + motorid
+        KpCurrent = KiCurrent = KpVel = KiVel = KpPos = KiPos = 0
+        try:
+            KpCurrent, KiCurrent = data["current"]
+            KpVel, KiVel = data["velocity"]
+            KpPos, KiPos = data["position"]
+        except:
+            print("invalid data. data should be a dictionary with keys: current, velocity, position and values: (Kp, Ki)")
+            return
+        dataw = [0x31,
+                0x00,
+                int(KpCurrent).to_bytes("little", 1),
+                int(KiCurrent).to_bytes("little", 1),
+                int(KpVel).to_bytes("little", 1),
+                int(KiVel).to_bytes("little", 1),
+                int(KpPos).to_bytes("little", 1),
+                int(KiPos).to_bytes("little", 1)]
+        msg = self._sendAndReceive(wid, dataw)
         return msg
+
+    def setPIDInROM(self, motorid=1, data={}):
+        wid = WRITEID + motorid
+        rid = READID + motorid
+        KpCurrent = KiCurrent = KpVel = KiVel = KpPos = KiPos = 0
+        try:
+            KpCurrent, KiCurrent = data["current"]
+            KpVel, KiVel = data["velocity"]
+            KpPos, KiPos = data["position"]
+        except:
+            print("invalid data. data should be a dictionary with keys: current, velocity, position and values: (Kp, Ki)")
+            return
+        dataw = [0x31,
+                0x00,
+                int(KpCurrent).to_bytes("little", 1),
+                int(KiCurrent).to_bytes("little", 1),
+                int(KpVel).to_bytes("little", 1),
+                int(KiVel).to_bytes("little", 1),
+                int(KpPos).to_bytes("little", 1),
+                int(KiPos).to_bytes("little", 1)]
+        msg = self._sendAndReceive(wid, dataw)
+        return msg
+
 
     def applyTorqueToBothMotors(self, torque=0, duration=5):
         start = time.time()
@@ -125,7 +179,7 @@ class AROMotorControl():
         self.pcan.send_message(msg)
         msg = self.pcan.read_input()
         motor_offset = int.from_bytes(msg.data[4:8], "little")
-        print(f"motor {motor_id} has been reset. offset: {motor_offset}. restart required. ")
+        print(f"motor {motor_id} has been reset. offset: {motor_offset}. restart required.")
         return
     
     def applyTorqueToMotor(self, motorid=1, torque=18):
@@ -149,46 +203,6 @@ class AROMotorControl():
 
 
 
-
-
-
-
-def sign(x):
-    return 1 if x >= 0 else -1
-
-
-
-
-    
-# mc = AROMotorControl()
-# mc.setZero(1)
-# mc.setZero(2)
-# input("press any key to continue")
-# continuousControl(None, 50, 50, -50, mc)
-
-
-
-#continuousControl(pcan, 5, 150, -150)
-# continuousControl(pcan, 5, 50, -50)
-# continuousControl(pcan, 5, 150, -150)
-# continuousControl(pcan, 5, 50, -50)
-# continuousControl(pcan, 5, 150, -150)
-#continuousControl(pcan, 10, 180, 180)
-#msg = singleTurnPositionControl(pcan, 2, 2)
-# msg = applyTorqueToBothMotors(pcan)
-#msg = readPID(pcan)
-#msg = readAngleMultiple(pcan, 1, 10)  
-#pcan.cleanup()      
-
-
-#msg = can.Message(arbitration_id=0x142, data=[0xA1,0x00,0x00,0x00,0x9C,0xFF,0x00,0x00], is_extended_id=False)
-    
-#            bus2.send(msg)
-
-#os.system('cansend can0 141#A10000009CFF0000')
-#os.system('sudo ifconfig can0 down')
-
-#lowest bytes first
 
 
 def readPosition(pcan , motorid=1,duration = 10):
