@@ -54,19 +54,18 @@ This class provides all the methods to implement a closed loop control of the mo
 class AROMotorControl():
     
     def __init__(self):
-        print(os.name)
-        os.system('sudo ifconfig can0 down')
-        os.system('sudo ip link set can0 type can bitrate 1000000')
-        os.system("sudo ifconfig can0 txqueuelen 100000")
-        os.system('sudo ifconfig can0 up')
+        # os.system('sudo ifconfig can0 down')
+        # os.system('sudo ip link set can0 type can bitrate 1000000')
+        # os.system("sudo ifconfig can0 txqueuelen 100000")
+        # os.system('sudo ifconfig can0 up')
         self.pcan = PCANBus()
+        self.current_command_last_msg = (0, 0, 0, 0)
     
     def _sendAndReceive(self, aribitration_id, data):
         msg = can.Message(arbitration_id=aribitration_id, data=data, is_extended_id=False)
         self.pcan.send_message(msg)
         msg = self.pcan.read_input()
         return msg
-
     
     def _bytestointeger(self, msg, range_ind=(6,8), signed=True, byteorder="little"):
         return int.from_bytes(msg.data[range_ind[0]:range_ind[1]], byteorder=byteorder, signed=signed)
@@ -76,7 +75,7 @@ class AROMotorControl():
         wid = WRITEID + motorid
         dataw=[0x92,0x00,0x00,0x00,0x00,0x00,0x00,0x00]
         msg = self._sendAndReceive(wid, dataw)
-        value  = int.from_bytes(msg.data[4:8], byteorder='little', signed=True)
+        value  = (int.from_bytes(msg.data[4:8], byteorder='little', signed=True) / 100) % 360
         return value
     
     def readPositionContinuous(self, frequency=100):
@@ -86,10 +85,11 @@ class AROMotorControl():
         dataw=[0x92,0x00,0x00,0x00,0x00,0x00,0x00,0x00]
         while True:
                 msg = self._sendAndReceive(wid1, dataw)
-                angle1  = int.from_bytes(msg.data[4:8], byteorder='little', signed=True)
+                angle1  = (int.from_bytes(msg.data[4:8], byteorder='little', signed=True) / 100) % 360
                 msg = self._sendAndReceive(wid2, dataw)
-                angle2  = int.from_bytes(msg.data[4:8], byteorder='little', signed=True)
+                angle2  = (int.from_bytes(msg.data[4:8], byteorder='little', signed=True) / 100) % 360
                 yield (angle1, angle2)
+                frequency = frequency if frequency > 0 else 0.001
                 time.sleep(1/frequency)
         return value
     
@@ -103,35 +103,58 @@ class AROMotorControl():
         KpPos, KiPos = msg.data[6], msg.data[7]
         return kpCurrent, kiCurrent, KpVel, KiVel, KpPos, KiPos
 
-    def setPIDInRAM(self, motorid=1, KpCurrent=0, KiCurrent=0, KpVel=0, KiVel=0, KpPos=0, KiPos=0):
+    def setPIDInROM(self, motorid=1, KpCurrent=0, KiCurrent=0, KpVel=0, KiVel=0, KpPos=0, KiPos=0):
+        try:
+            KpCurrent = int(KpCurrent)
+            KiCurrent = int(KiCurrent)
+            KpVel = int(KpVel)
+            KiVel = int(KiVel)
+            KpPos = int(KpPos)
+            KiPos = int(KiPos)
+        except ValueError:
+            print("Cant convert given gains into integers")
+            return False  
+
         wid = WRITEID + motorid
         rid = READID + motorid
         dataw = [0x31,
                 0x00,
-                int(KpCurrent).to_bytes("little", 1),
-                int(KiCurrent).to_bytes("little", 1),
-                int(KpVel).to_bytes("little", 1),
-                int(KiVel).to_bytes("little", 1),
-                int(KpPos).to_bytes("little", 1),
-                int(KiPos).to_bytes("little", 1)]
+                KpCurrent.to_bytes(1, "little")[0],
+                KiCurrent.to_bytes(1, "little")[0],
+                KpVel.to_bytes(1, "little")[0],
+                KiVel.to_bytes(1, "little")[0],
+                KpPos.to_bytes(1, "little")[0],
+                KiPos.to_bytes(1, "little")[0]]
         msg = self._sendAndReceive(wid, dataw)
         return True
 
-    def setPIDInROM(self, motorid=1, KpCurrent=0, KiCurrent=0, KpVel=0, KiVel=0, KpPos=0, KiPos=0):
+
+    def setPIDInRAM(self, motorid=1, KpCurrent=0, KiCurrent=0, KpVel=0, KiVel=0, KpPos=0, KiPos=0):
+        try:
+            KpCurrent = int(KpCurrent)
+            KiCurrent = int(KiCurrent)
+            KpVel = int(KpVel)
+            KiVel = int(KiVel)
+            KpPos = int(KpPos)
+            KiPos = int(KiPos)
+        except ValueError:
+            print("Cant convert given gains into integers")
+            return False  
+        
         wid = WRITEID + motorid
         rid = READID + motorid
         dataw = [0x31,
                 0x00,
-                int(KpCurrent).to_bytes("little", 1),
-                int(KiCurrent).to_bytes("little", 1),
-                int(KpVel).to_bytes("little", 1),
-                int(KiVel).to_bytes("little", 1),
-                int(KpPos).to_bytes("little", 1),
-                int(KiPos).to_bytes("little", 1)]
+                KpCurrent.to_bytes(1, "little")[0],
+                KiCurrent.to_bytes(1, "little")[0],
+                KpVel.to_bytes(1, "little")[0],
+                KiVel.to_bytes(1, "little")[0],
+                KpPos.to_bytes(1, "little")[0],
+                KiPos.to_bytes(1, "little")[0]]
         msg = self._sendAndReceive(wid, dataw)
         return True
     
-    def positionControl(self, motorid=1, rotation_dir=0, speed_limit=0, position=0):
+    def positionControl(self, motorid=1, rotation_dir=0, speed_limit=0, position=0, run_async=True, error_threshold=0.1):
         wid = WRITEID + motorid
         rid = READID + motorid
         rotation_dir_bytes = rotation_dir.to_bytes(1, "little")
@@ -145,9 +168,16 @@ class AROMotorControl():
                 position_bytes[1],
                 0x00,
                 0x00]
-        msg = self._sendAndReceive(wid, dataw)
-        motor_temp, torque, speed, angle = msg.data[1], int.from_bytes(msg.data[2:4], "little"), int.from_bytes(msg.data[4:6], "little"), int.from_bytes(msg.data[6:8], "little", signed=True)
-        return motor_temp, torque, speed, angle
+        if not run_async:
+            current_position = self.readPosition(motorid=motorid)
+            while abs(current_position - position) > error_threshold:
+                msg = self._sendAndReceive(wid, dataw)
+                motor_temp, torque, speed, current_position = msg.data[1], int.from_bytes(msg.data[2:4], "little"), int.from_bytes(msg.data[4:6], "little"), int.from_bytes(msg.data[6:8], "little", signed=True)
+                time.sleep(0.01)
+        else:
+            msg = self._sendAndReceive(wid, dataw)
+            motor_temp, torque, speed, current_position = msg.data[1], int.from_bytes(msg.data[2:4], "little"), int.from_bytes(msg.data[4:6], "little"), int.from_bytes(msg.data[6:8], "little", signed=True)
+        return motor_temp, torque, speed, current_position
         
     def setZero(self, motor_id=1):
         wid1 = WRITEID + motor_id
@@ -164,7 +194,7 @@ class AROMotorControl():
         current = max(min(current, 0.5), -0.5)
         current = int(current * 100)
         start = time.time()
-        torque_bytes = torque.to_bytes(2, "little", signed=True)
+        torque_bytes = current.to_bytes(2, "little", signed=True)
         #print(f"{torque_bytes[0]} {torque_bytes[1]}")
         wid1 = WRITEID + motorid
         rid1 = READID + motorid
@@ -172,36 +202,18 @@ class AROMotorControl():
         msg = can.Message(arbitration_id=wid1, data=dataw, is_extended_id=False)
         self.pcan.send_message(msg)
         msg = self.pcan.read_input()
-        motor_temp = msg.data[1]
-        current = int.from_bytes(msg.data[2:4], "little")
-        speed = int.from_bytes(msg.data[4:6], "little")
-        angle = int.from_bytes(msg.data[6:8], "little", signed=True)
+        try:
+            motor_temp = msg.data[1]
+            current = int.from_bytes(msg.data[2:4], "little")
+            speed = int.from_bytes(msg.data[4:6], "little")
+            angle = int.from_bytes(msg.data[6:8], "little", signed=True) % 360
+            self.current_command_last_msg = (motor_temp, current, speed, angle)
+        except:
+            print("no message in the buffer")
+            return self.current_command_last_msg
         return motor_temp, current, speed, angle
     
-    def applyTorqueToBothMotors(self, torque=0, duration=5):
-        start = time.time()
-        torque_bytes = torque.to_bytes(2, "little")
-        print(f"{torque_bytes[0]} {torque_bytes[1]}")
-        wid1 = WRITEID + 1
-        rid1 = READID + 1
-        wid2 = WRITEID + 2
-        rid2 = READID + 2
-        dataw = [0xA1,0x01,0x00,0x00,torque_bytes[0],torque_bytes[1],0x00,0x00]
-        msg = can.Message(arbitration_id=wid1, data=dataw, is_extended_id=False)
-        self.pcan.send_message(msg)
-        msg = can.Message(arbitration_id=wid2, data=dataw, is_extended_id=False)
-        self.pcan.send_message(msg)
-        while (time.time() - start < duration):
-            msg = self.pcan.read_input()
-            time.sleep(0.01)
-        dataw = [0xA1,0x00,0x00,0x00,0x00,0x00,0x00,0x00]
-        msg = can.Message(arbitration_id=wid1, data=dataw, is_extended_id=False)
-        self.pcan.send_message(msg)
-        msg = pcan.read_input()
-        msg = can.Message(arbitration_id=wid2, data=dataw, is_extended_id=False)
-        self.pcan.send_message(msg)
-        msg = self.pcan.read_input()
-        return msg
+  
 
 
 

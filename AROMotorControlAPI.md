@@ -4,18 +4,41 @@ The `AROMotorControl` class provides methods to interface with the motors.
 
 ## Public Methods
 
-### `readPosition(self, motorid=1, duration=10, frequency=100)`
+### `setZero()`
+Sets the zero position for the specified motor. 
+#### Parameters
+- `motor_id` (int): The ID of the motor (default: 1). Possible Values are 1 or 2.
+
+#### Returns
+- `result` (bool): Returns `True` if the zero position was set successfully.
+
+Please note that after calling this method, the power supply needs to be turned off and on again for the setZero command to take effect. A suggested approach to set zero position as facing forwards for both motors at the same time is:
+- Rotate both motors to the desired position and optionally use the 3d-printed aligner to lock the motors in place
+- run the following code:
+```python
+mc = AROMotorControl()
+mc.setZero(1)
+mc.setZero(2)
+input("press any key to continue") 
+```
+- when you see this message turn off your power supply, wait for at least 2 seconds, turn it back on again, wait for 2 seconds, remove the aligner, and press enter (or any other key).
+- you can verify if the process was succeeful by calling
+```python
+mc.readPosition(motor_id)
+```
+
+### `readPosition()`
 Reads the position of the specified motor.
 
 #### Parameters
 - `motorid` (int): The ID of the motor (default: 1). Possible Values are 1 or 2.
 
 #### Returns
-- `value` (int): The angle of the motor.
+- `position` (int): The angle of the motor in degrees.
 
-### `readPositionContinuous`
+### `readPositionContinuous()`
 
-This function is used to read the positions of both motor continuously at a specified frequency. This function returns a generator that yields the motor angles at each interval indefinitely.
+This method is used to read the positions of both motor continuously at a specified frequency. This method returns a generator that can be used to yield the motor angles at each interval indefinitely.
 
 ### Parameters:
 - `frequency` (int, default=100): The frequency, in Hertz, at which to read the angle.
@@ -34,13 +57,40 @@ while some_condition:
     if some_condition:
         break
 ```
-
-
-### `readPID(self, motorid=1, duration=10)`
-Reads the PID parameters of the specified motor.
+### `applyCurrentToMotor()`
+Applies a current to the specified motor.
 
 #### Parameters
 - `motorid` (int): The ID of the motor (default: 1).
+- `current` (float): The current to be applied in Amps (default: 0.18).
+
+#### Returns
+- `motor_temp` (int): The temperature of the motor.
+- `current` (int): The current applied to the motor
+- `speed` (int): The speed.
+- `position` (int): The angle in degrees.
+
+### `positionControl()`
+Controls the position of the specified motor using the inbuilt controllers of the motor. This method can be used to test or debug the setup
+
+#### Parameters
+- `motorid` (int): The ID of the motor (default: 1). Possible values are 1 or 2.
+- `rotation_dir` (int): The direction of rotation (default: 0). 0 means clockwise and 1 means anticlockwise
+- `speed_limit` (int): The speed limit (default: 0).
+- `position` (int): The desired position (default: 0).
+- `run_async` (bool): Run in asynchronous mode.
+
+#### Returns
+- `motor_temp` (int): The temperature of the motor.
+- `torque` (int): The torque.
+- `speed` (int): The speed.
+- `angle` (int): The angle.
+
+<!-- ### `readPID()`
+Reads the PID parameters of the specified motor.
+
+#### Parameters
+- `motorid` (int): The ID of the motor (default: 1). Possible Values are 1 or 2.
 #### Returns
 - `kpCurrent` (int): The current proportional gain.
 - `kiCurrent` (int): The current integral gain.
@@ -49,7 +99,7 @@ Reads the PID parameters of the specified motor.
 - `KpPos` (int): The position proportional gain.
 - `KiPos` (int): The position integral gain.
 
-### `setPIDInRAM(self, motorid=1, KpCurrent=0, KiCurrent=0, KpVel=0, KiVel=0, KpPos=0, KiPos=0)`
+### `setPIDInRAM()`
 Sets the PID parameters in RAM for the specified motor.
 
 #### Parameters
@@ -64,7 +114,7 @@ Sets the PID parameters in RAM for the specified motor.
 #### Returns
 - `True` (bool): Returns `True` if the PID parameters were set successfully.
 
-### `setPIDInROM(self, motorid=1, KpCurrent=0, KiCurrent=0, KpVel=0, KiVel=0, KpPos=0, KiPos=0)`
+### `setPIDInROM()`
 Sets the PID parameters in ROM for the specified motor.
 
 #### Parameters
@@ -77,41 +127,4 @@ Sets the PID parameters in ROM for the specified motor.
 - `KiPos` (int): The desired position integral gain (default: 0).
 
 #### Returns
-- `result` (bool): Returns `True` if the PID parameters were set successfully.
-
-### `positionControl(self, motorid=1, rotation_dir=0, speed_limit=0, position=0)`
-Controls the position of the specified motor using the inbuilt controllers of the motor. This method can be used to test or debug the setup
-
-#### Parameters
-- `motorid` (int): The ID of the motor (default: 1).
-- `rotation_dir` (int): The direction of rotation (default: 0). 0 means clockwise and 1 means anticlockwise
-- `speed_limit` (int): The speed limit (default: 0).
-- `position` (int): The desired position (default: 0).
-
-#### Returns
-- `motor_temp` (int): The temperature of the motor.
-- `torque` (int): The torque.
-- `speed` (int): The speed.
-- `angle` (int): The angle.
-
-### `setZero(self, motor_id=1)`
-Sets the zero position for the specified motor.
-
-#### Parameters
-- `motor_id` (int): The ID of the motor (default: 1).
-
-#### Returns
-- `result` (bool): Returns `True` if the zero position was set successfully.
-
-### `applyCurrentToMotor(self, motorid=1, current=0.18)`
-Applies a current to the specified motor.
-
-#### Parameters
-- `motorid` (int): The ID of the motor (default: 1).
-- `current` (float): The current to be applied (default: 0.18).
-
-#### Returns
-- `motor_temp` (int): The temperature of the motor.
-- `current` (int): The current.
-- `speed` (int): The speed.
-- `angle` (int): The angle.
+- `result` (bool): Returns `True` if the PID parameters were set successfully. -->
