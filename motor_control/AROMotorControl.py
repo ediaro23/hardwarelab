@@ -28,8 +28,14 @@ class PCANBus(object):
             logging.error("message not sent!")
             return False
 
-    def read_input(self):
-        return self.buffer.get_message()
+    def read_input(self, arbitration_id):
+        motor_id = arbitration_id - int(WRITEID)
+        expected_msg_id = int(READID) + motor_id
+        msg = self.buffer.get_message()
+        while msg.arbitration_id != expected_msg_id:
+            # print(f"mismatch!!! msg.aid: {msg.arbitration_id} aid: {expected_msg_id}\nmsg:{msg}")
+            msg = self.buffer.get_message()
+        return msg
 
     def flush_buffer(self):
         msg = self.buffer.get_message()
@@ -64,7 +70,7 @@ class AROMotorControl():
     def _sendAndReceive(self, aribitration_id, data):
         msg = can.Message(arbitration_id=aribitration_id, data=data, is_extended_id=False)
         self.pcan.send_message(msg)
-        msg = self.pcan.read_input()
+        msg = self.pcan.read_input(aribitration_id)
         return msg
     
     def _bytestointeger(self, msg, range_ind=(6,8), signed=True, byteorder="little"):
@@ -183,9 +189,7 @@ class AROMotorControl():
         wid1 = WRITEID + motor_id
         rid1 = READID + motor_id
         dataw = [0x64,0x00,0x00,0x00,0x00,0x00,0x00,0x00]
-        msg = can.Message(arbitration_id=wid1, data=dataw, is_extended_id=False)
-        self.pcan.send_message(msg)
-        msg = self.pcan.read_input()
+        msg = self._sendAndReceive(wid1, dataw)
         motor_offset = int.from_bytes(msg.data[4:8], "little")
         print(f"motor {motor_id} has been reset. offset: {motor_offset}. restart required.")
         return True
@@ -199,9 +203,7 @@ class AROMotorControl():
         wid1 = WRITEID + motorid
         rid1 = READID + motorid
         dataw = [0xA1,0x00,0x00,0x00,torque_bytes[0],torque_bytes[1],0x00,0x00]
-        msg = can.Message(arbitration_id=wid1, data=dataw, is_extended_id=False)
-        self.pcan.send_message(msg)
-        msg = self.pcan.read_input()
+        msg = self._sendAndReceive(wid1, dataw)
         try:
             motor_temp = msg.data[1]
             current = int.from_bytes(msg.data[2:4], "little")
